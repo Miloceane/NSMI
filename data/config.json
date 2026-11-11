@@ -2,9 +2,10 @@
   "delay_yellow_min": 3,
   "delay_red_min": 15,
   "usual_cancelled": "red",
-  "replacement_transport": "red",
+  "replacement_transport": "yellow",
   "reduced_service": "red",
   "no_trains": "red",
   "all_cancelled": "red",
+  "no_data": "yellow",
   "watch_times": []
 }

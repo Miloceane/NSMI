@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="topbar"></div>
+    <div class="topbar">
     <h1>🚆✨ Quintrein Project ✨🚆</h1>
     <button type="button" class="secondary small" id="logout">Log out</button>
   </div>
@@ -29,6 +29,7 @@
       <button type="submit">Save route</button>
     </form>
     <p id="result" role="status"></p>
+    <p class="notice">⏱ The light on the Quintrein device may take up to one minute to update.</p>
   </div>
 
   <div class="panel">
@@ -57,10 +58,10 @@
       (or the specific train chosen below). The worst colour that applies wins.</p>
 
       <h4>Delay</h4>
-      <label for="cfg_delay_yellow_min">Yellow from (minutes late)</label>
+      <label for="cfg_delay_yellow_min">🟡 Yellow from (minutes late)</label>
       <input id="cfg_delay_yellow_min" type="number" min="0" max="720" required>
 
-      <label for="cfg_delay_red_min">Red from (minutes late)</label>
+      <label for="cfg_delay_red_min">🔴 Red from (minutes late)</label>
       <input id="cfg_delay_red_min" type="number" min="0" max="720" required>
 
       <h4>Other situations</h4>

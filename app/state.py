@@ -1,11 +1,13 @@
 """Route, settings and the latest status, plus refreshing them from NS."""
 import time
+from datetime import datetime
 from threading import Lock
 
 from . import config as cfgmod
 from . import storage
 from .config import COLOR_OF_STATUS, STATUS_OF_COLOR
 from .evaluate import evaluate_route
+from .trips import local_tz
 
 NS_MIN_INTERVAL = 60            # seconds between NS checks
 STALE_AFTER_SECONDS = 15 * 60   # keep the last good answer this long if NS fails
@@ -107,7 +109,7 @@ def refresh():
                     message=outcome["message"],
                     watching=outcome["watching"],
                     reliable=outcome["reliable"],
-                    last_checked=time.strftime("%Y-%m-%d %H:%M:%S"),
+                    last_checked=datetime.now(local_tz()).strftime("%Y-%m-%d %H:%M:%S %Z"),
                 )
                 status.pop("error", None)
                 if outcome["reliable"]:

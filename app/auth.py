@@ -9,8 +9,8 @@ import hmac
 import os
 import time
 
-PASSWORD = os.getenv("APP_PASSWORD", "change-this-password")
-DEVICE_TOKEN = os.getenv("DEVICE_TOKEN", "change-this-device-token")
+PASSWORD = os.getenv("APP_PASSWORD")
+DEVICE_TOKEN = os.getenv("DEVICE_TOKEN")
 
 COOKIE_NAME = "train_session"
 SESSION_SECONDS = 30 * 24 * 3600   # stay logged in for 30 days
@@ -19,10 +19,6 @@ LOCKOUT_SECONDS = 600              # ...of this many seconds (per client address
 
 # The ESP32 can read these two without a login session, using the token.
 DEVICE_PATHS = {"/color", "/status"}
-
-if PASSWORD == "change-this-password" or DEVICE_TOKEN == "change-this-device-token":
-    print("WARNING: default password/device token in use; edit app/auth.py")
-
 
 # ---------------------------------------------------------------- sessions
 

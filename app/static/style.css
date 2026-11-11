@@ -44,6 +44,16 @@ button.secondary { background: #777; margin-top: 0; }
 button.small { width: auto; padding: 8px 14px; margin: 0; font-size: 14px; }
 .login { max-width: 360px; margin-left: auto; margin-right: auto; }
 
+.notice {
+  background: #fff8e1;
+  border-left: 4px solid #e6b800;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: #5c4a00;
+}
+
 /* Phone: one column (the default). Desktop: status next to the settings. */
 .layout { display: block; }
 

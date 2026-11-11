@@ -11,11 +11,22 @@ WATCH_TOLERANCE_MIN = 10   # "07:49" may mean the train that leaves at 07:48
 MAX_WATCH_LOOKUPS = 3      # NS calls per check when specific times are chosen
 
 
+_warned_about_timezone = False
+
+
 def local_tz():
+    global _warned_about_timezone
+    name = os.getenv("TIMEZONE", "Europe/Amsterdam")
     try:
-        return ZoneInfo(os.getenv("TIMEZONE", "Europe/Amsterdam"))
+        return ZoneInfo(name)
     except Exception:
-        # No tz database in the container (add `tzdata` to requirements).
+        # No tz database in the container: install `tzdata` (it is in
+        # requirements.txt). The fallback is the server's own timezone,
+        # which in Docker is usually UTC, so times will be off.
+        if not _warned_about_timezone:
+            print(f"WARNING: timezone '{name}' not available (is tzdata installed?); "
+                  "using the server's timezone, times may be wrong")
+            _warned_about_timezone = True
         return datetime.now().astimezone().tzinfo
 
 
