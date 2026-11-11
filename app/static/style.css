@@ -1,0 +1,59 @@
+body {
+  font: 16px system-ui;
+  max-width: 520px;
+  margin: 30px auto;
+  padding: 0 18px;
+  background: #f7f7f7;
+}
+h1 { text-align: center; }
+h4 { margin: 18px 0 4px; }
+.panel {
+  background: white;
+  padding: 20px;
+  border-radius: 14px;
+  margin: 18px 0;
+  box-shadow: 0 2px 8px #0001;
+}
+input, button, select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 14px;
+  margin: 7px 0 16px;
+  border-radius: 8px;
+  font-size: 16px;
+}
+input, select { border: 1px solid #ccc; background: white; }
+button {
+  background: #1769aa;
+  color: white;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+}
+button.secondary { background: #777; margin-top: 0; }
+.route { font-weight: bold; }
+.hint { color: #666; font-size: 14px; margin: 0 0 8px; }
+.status-row { display: flex; align-items: center; gap: 12px; }
+.status-row h3 { margin: 0; }
+.dot { width: 26px; height: 26px; border-radius: 50%; background: #999; flex: none; }
+
+.topbar { position: relative; }
+.topbar #logout {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+}
+button.small { width: auto; padding: 8px 14px; margin: 0; font-size: 14px; }
+.login { max-width: 360px; margin-left: auto; margin-right: auto; }
+
+/* Phone: one column (the default). Desktop: status next to the settings. */
+.layout { display: block; }
+
+@media (min-width: 900px) {
+  body { max-width: 1040px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24px;
+    align-items: start;
+  }
+  .column > .panel:first-child { margin-top: 0; }
+}

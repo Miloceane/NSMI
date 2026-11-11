@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quintrein Project</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="topbar"></div>
+    <h1>🚆✨ Quintrein Project ✨🚆</h1>
+    <button type="button" class="secondary small" id="logout">Log out</button>
+  </div>
+
+  <div class="layout">
+  <div class="column">
+  <div class="panel">
+    <h2>Choose your route</h2>
+    <form id="routeForm">
+      <label for="departure">Departure station</label>
+      <input id="departure" list="stations" maxlength="100" required
+             autocomplete="off" placeholder="Start typing a station…">
+
+      <label for="arrival">Arrival station</label>
+      <input id="arrival" list="stations" maxlength="100" required
+             autocomplete="off" placeholder="Start typing a station…">
+
+      <datalist id="stations"></datalist>
+      <button type="submit">Save route</button>
+    </form>
+    <p id="result" role="status"></p>
+  </div>
+
+  <div class="panel">
+    <h2>Current route</h2>
+    <p class="route" id="savedRoute">…</p>
+  </div>
+
+  <div class="panel">
+    <h2>Train status</h2>
+    <div class="status-row">
+      <span class="dot" id="dot"></span>
+      <h3 id="status">…</h3>
+    </div>
+    <p id="message"></p>
+    <small id="watching"></small><br>
+    <small id="checked"></small>
+  </div>
+
+  </div>
+
+  <div class="column">
+  <div class="panel">
+    <h2>Light settings</h2>
+    <form id="configForm">
+      <p class="hint">Delays are measured against the train you'd normally take
+      (or the specific train chosen below). The worst colour that applies wins.</p>
+
+      <h4>Delay</h4>
+      <label for="cfg_delay_yellow_min">Yellow from (minutes late)</label>
+      <input id="cfg_delay_yellow_min" type="number" min="0" max="720" required>
+
+      <label for="cfg_delay_red_min">Red from (minutes late)</label>
+      <input id="cfg_delay_red_min" type="number" min="0" max="720" required>
+
+      <h4>Other situations</h4>
+      <p class="hint">Pick green to ignore a situation.</p>
+      <div id="conditions"></div>
+
+      <h4>Specific trains (optional)</h4>
+      <p class="hint">Departure times from your station, e.g. 07:48, 08:18.
+      The next one that hasn't left yet decides the colour.
+      Leave empty to follow the next train.</p>
+      <input id="cfg_watch_times" placeholder="07:48, 08:18">
+
+      <button type="submit">Save settings</button>
+      <button type="button" class="secondary" id="resetConfig">Reset to defaults</button>
+    </form>
+    <p id="configResult" role="status"></p>
+  </div>
+  </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
