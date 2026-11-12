@@ -3,7 +3,7 @@ services:
   train-status:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:3000:8000"
     volumes:
       - ./data:/data
     env_file:
