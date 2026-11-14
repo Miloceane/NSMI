@@ -19,8 +19,8 @@ DEFAULT_ROUTE = {
 }
 DEFAULT_STATUS = {
     "status": "ok",
-    "color": "green",
-    "message": "Running normally",
+    "color": "white",
+    "message": "Starting up, no data yet",
     "watching": None,
     "reliable": True,
 }
