@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from . import ns_client
 from .config import COLOR_RANK
 from .disruptions import check_disruptions, route_stops
@@ -5,6 +7,7 @@ from .trips import (
     TRIPS_TO_CHECK,
     fetch_trips,
     find_watched,
+    local_tz,
     trip_has_issue,
     trip_is_cancelled,
     trip_messages,
@@ -50,7 +53,12 @@ def evaluate_route(departure, arrival, cfg):
             )
 
     if not usable:
-        usable = fetch_trips(start, end)[:TRIPS_TO_CHECK]
+        now = datetime.now(local_tz())
+        upcoming = [
+            (t, tm) for t, tm in fetch_trips(start, end)
+            if tm["dep_actual"] >= now
+        ]
+        usable = (upcoming or fetch_trips(start, end))[:TRIPS_TO_CHECK]
         if not usable:
             return no_data(cfg, "NS returned no trips for this route")
 

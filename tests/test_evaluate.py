@@ -126,6 +126,13 @@ def test_no_trips_uses_no_data_colour_not_unknown(ns, trips):
     assert result["color"] == "red" and not result["reliable"]
 
 
+def test_past_trip_is_skipped_for_reference(ns):
+    ns["trips"] = [trip(-10), trip(40)]
+    result = run()
+    dep = (NOW + timedelta(minutes=40)).strftime("%H:%M")
+    assert f"leaves {dep}" in result["message"]
+
+
 def test_unknown_station_uses_no_data_colour(ns):
     result = evaluate_route("Nowhere", "Doetinchem", dict(DEFAULT_CONFIG))
     assert result["color"] == "yellow" and not result["reliable"]
