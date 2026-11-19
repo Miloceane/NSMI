@@ -42,7 +42,13 @@ async function loadMe() {
     if (!response.ok) return;
     const me = await response.json();
     $("pwUser").value = me.id;
-    $("deviceName").textContent = "Device: " + me.name + (me.owner ? " (" + me.owner + ")" : "");
+    $("deviceName").textContent = me.name;
+    const details = [];
+    if (me.name !== me.id) details.push("id: " + me.id);
+    if (me.owner) details.push("owner: " + me.owner);
+    $("deviceDetails").textContent = details.join(" · ");
+    $("deviceBanner").hidden = false;
+    document.title = me.name + " – Quintrein Project";
   } catch (error) {
     /* not important */
   }
