@@ -86,7 +86,7 @@ async function loadRoute() {
 async function loadStatus() {
   try {
     const response = await fetch("/status");
-    if (!response.ok) return;
+    if (!response.ok) return null;
     const data = await response.json();
 
     $("dot").style.background = COLORS[data.color] || "#999";
@@ -99,9 +99,23 @@ async function loadStatus() {
       ? "Following the " + data.watching + " train" : "";
     $("checked").textContent =
       data.last_checked ? "Last checked: " + data.last_checked : "";
+    return data;
   } catch (error) {
-    /* keep showing what we have */
+    return null; /* keep showing what we have */
   }
+}
+
+// After a change, check every few seconds until the server has a real
+// answer (it fetches from NS within ~10 s), then go back to the slow pace.
+let fastPoll = null;
+function pollUntilFresh() {
+  clearInterval(fastPoll);
+  const started = Date.now();
+  fastPoll = setInterval(async () => {
+    const data = await loadStatus();
+    const ready = data && data.color !== "white";
+    if (ready || Date.now() - started > 90000) clearInterval(fastPoll);
+  }, 3000);
 }
 
 function fillConfig(c) {
@@ -136,6 +150,7 @@ async function sendConfig(url, body, okText) {
     fillConfig(data);
     out.textContent = okText;
     loadStatus();
+    pollUntilFresh();
   } catch (error) {
     out.textContent = "Error: " + error.message;
   }
@@ -185,8 +200,9 @@ $("routeForm").addEventListener("submit", async (event) => {
     $("departure").value = data.departure;
     $("arrival").value = data.arrival;
     $("savedRoute").textContent = data.departure + " → " + data.arrival;
-    result.textContent = "Route saved successfully!";
+    result.textContent = "Route saved! Checking NS, the status below updates in a few seconds.";
     loadStatus();
+    pollUntilFresh();
   } catch (error) {
     result.textContent = "Error: " + error.message;
   }

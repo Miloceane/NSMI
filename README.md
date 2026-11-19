@@ -66,7 +66,9 @@ go where a wrong colour would hurt most. Each device asks for data this fresh:
 
 When the budget is tight, the most overdue item (relative to its max age)
 goes first. A quiet device that starts being polled again asks for fresh
-data right away. If data is older than max(15 min, 2 x max age + 5 min), the
+data right away. Saving a route or settings wakes the worker immediately, so
+the new status shows up on the page within ~10 seconds (the page polls every
+3 s until it arrives). If data is older than max(15 min, 2 x max age + 5 min), the
 "no data" colour is shown instead of a possibly wrong green.
 
 Rough capacity at 6 calls/min: each route with a train coming up costs

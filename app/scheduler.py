@@ -12,6 +12,12 @@ from . import ns_client, state
 
 _thread = None
 _stop = threading.Event()
+_wake = threading.Event()
+
+
+def wake():
+    """Something changed (new route/settings): look for work right away."""
+    _wake.set()
 
 
 def run_once(wait=True):
@@ -26,8 +32,9 @@ def run_once(wait=True):
 def _loop():
     while not _stop.is_set():
         try:
+            _wake.clear()
             if run_once() is None:
-                _stop.wait(5)  # nothing due right now
+                _wake.wait(5)  # nothing due right now (or until woken)
         except Exception as exc:
             print("Scheduler error:", str(exc))
             _stop.wait(10)
@@ -44,3 +51,4 @@ def start():
 
 def stop():
     _stop.set()
+    _wake.set()

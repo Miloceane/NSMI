@@ -199,6 +199,11 @@ def evaluate_all():
             del _devices[device_id]
 
 
+def _wake_scheduler():
+    from . import scheduler  # imported here: scheduler imports this module
+    scheduler.wake()
+
+
 # ------------------------------------------------------------------ access
 
 def get_route(device_id):
@@ -252,10 +257,11 @@ def set_route(device_id, new_route):
         except OSError:
             record["route"] = old
             raise
-        record["status"] = DEFAULT_STATUS.copy()
+        record["status"] = {**DEFAULT_STATUS, "message": "Checking NS for your new route..."}
         record["last_ok"] = None
         record["manual_until"] = 0
     evaluate(device_id)  # instant if another device already uses this route
+    _wake_scheduler()
     return new_route.copy()
 
 
@@ -271,6 +277,7 @@ def set_config(device_id, new_config):
             raise
         record["manual_until"] = 0
     evaluate(device_id)
+    _wake_scheduler()
     return get_config(device_id)
 
 
