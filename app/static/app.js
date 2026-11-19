@@ -8,7 +8,7 @@ window.fetch = async (...args) => {
 
 const $ = (id) => document.getElementById(id);
 
-const COLORS = { green: "#2e9d4f", yellow: "#e6b800", red: "#d33a2c" };
+const COLORS = { green: "#2e9d4f", yellow: "#e6b800", red: "#d33a2c", white: "#f4f4f4" };
 const CONDITIONS = [
   ["usual_cancelled", "My train is cancelled, but a later one works"],
   ["replacement_transport", "Replacement bus or other trip problem"],

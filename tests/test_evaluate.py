@@ -48,7 +48,7 @@ def trip(dep_min, dur=30, delay=0, cancelled=False):
 def ns(monkeypatch):
     data = {"trips": [], "disruptions": []}
 
-    def fake_get(path, max_age=None):
+    def fake_get(path, max_age=None, track=True):
         if path.startswith("/v2/stations"):
             return STATIONS
         if path.startswith("/v3/disruptions"):

@@ -52,7 +52,9 @@ def new_round():
 
 # ------------------------------------------------------------ cache reads
 
-def ns_get(path, max_age=None):
+def ns_get(path, max_age=None, track=True):
+    """`track=False`: don't count this data towards data_age() (used for
+    slow-changing data such as the station list)."""
     if max_age is None:
         max_age = getattr(_used, "max_age", DEFAULT_MAX_AGE)
     now = time.time()
@@ -67,7 +69,7 @@ def ns_get(path, max_age=None):
             entry["max_age"] = min(max_age, entry["max_age"])
         if "data" in entry:
             oldest = getattr(_used, "oldest", None)
-            if oldest is not None:
+            if track and oldest is not None:
                 _used.oldest = min(oldest, entry["fetched"])
             return entry["data"]
         error = entry.get("error")
@@ -199,7 +201,7 @@ def clear_cache():
 # ------------------------------------------------------------ stations
 
 def get_stations():
-    data = ns_get(STATIONS_PATH, max_age=STATIONS_MAX_AGE)
+    data = ns_get(STATIONS_PATH, max_age=STATIONS_MAX_AGE, track=False)
     return data.get("payload", []) if isinstance(data, dict) else []
 
 

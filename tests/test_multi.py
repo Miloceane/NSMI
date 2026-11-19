@@ -124,7 +124,7 @@ def test_ns_outage_keeps_colour_then_falls_back(fake_ns):
     run_minutes(clock, 5)
     assert state.get_color("a") == "red"            # short outage: keep last good
     run_minutes(clock, 15)
-    assert state.get_color("a") == "yellow"         # stale: the no_data colour
+    assert state.get_color("a") == "white"          # stale: no trustworthy data
     assert not state.get_status("a")["reliable"]
 
 

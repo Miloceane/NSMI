@@ -179,10 +179,10 @@ def evaluate(device_id):
         if last_ok is None or now - last_ok > stale_after:
             if waiting and status["color"] == "white":
                 return
-            color = config["no_data"]
+            # No trustworthy data: white, not a train colour.
             status.update(
-                color=color,
-                status=STATUS_OF_COLOR[color],
+                color="white",
+                status="unknown",
                 message="No recent NS data" if waiting else
                         "Could not reach NS and there is no recent data",
                 watching=None,
