@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -12,8 +12,12 @@
   <div class="panel login">
     <h2>Log in</h2>
     <form id="loginForm">
+      <label for="token">Device token</label>
+      <input id="token" required autofocus autocomplete="username"
+             autocapitalize="off" spellcheck="false" maxlength="200">
+
       <label for="password">Password</label>
-      <input id="password" type="password" required autofocus
+      <input id="password" type="password" required
              autocomplete="current-password" maxlength="200">
       <button type="submit">Log in</button>
     </form>

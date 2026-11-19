@@ -7,8 +7,8 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 
 def write_json(name, data):
     """Atomic write: a crash can't leave a half-written file."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
     target = DATA_DIR / name
+    target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_suffix(".tmp")
     temp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     temp.replace(target)

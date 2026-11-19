@@ -9,7 +9,10 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: document.getElementById("password").value })
+      body: JSON.stringify({
+        device: document.getElementById("device").value.trim(),
+        password: document.getElementById("password").value
+      })
     });
 
     if (response.ok) {

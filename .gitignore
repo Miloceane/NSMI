@@ -1,1 +1,6 @@
 .env
+data/accounts.json
+data/session.key
+data/devices/
+data/ns_last_call.json
+__pycache__/

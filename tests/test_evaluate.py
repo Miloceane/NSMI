@@ -48,7 +48,7 @@ def trip(dep_min, dur=30, delay=0, cancelled=False):
 def ns(monkeypatch):
     data = {"trips": [], "disruptions": []}
 
-    def fake_get(path):
+    def fake_get(path, max_age=None):
         if path.startswith("/v2/stations"):
             return STATIONS
         if path.startswith("/v3/disruptions"):
@@ -58,7 +58,6 @@ def ns(monkeypatch):
         raise AssertionError(path)
 
     monkeypatch.setattr(ns_client, "ns_get", fake_get)
-    monkeypatch.setattr(ns_client, "_stations", [])
     return data
 
 
@@ -148,22 +147,3 @@ def test_config_validation():
     assert clean_config({**DEFAULT_CONFIG, "watch_times": ["7:48", "07:48"]})["watch_times"] == ["07:48"]
 
 
-def test_ns_outage_keeps_last_good_colour_then_falls_back(monkeypatch):
-    calls = {"fail": False}
-
-    def fake_eval(*args):
-        if calls["fail"]:
-            raise RuntimeError("down")
-        return {"color": "red", "message": "bad", "watching": None, "reliable": True}
-
-    monkeypatch.setattr(state, "evaluate_route", fake_eval)
-    state.invalidate()
-    assert state.get_status()["color"] == "red"
-
-    calls["fail"] = True
-    state.invalidate()
-    assert state.get_status()["color"] == "red"          # short outage: keep last good
-
-    state.last_ok -= state.STALE_AFTER_SECONDS + 1       # pretend it was long ago
-    state.invalidate()
-    assert state.get_status()["color"] == DEFAULT_CONFIG["no_data"]

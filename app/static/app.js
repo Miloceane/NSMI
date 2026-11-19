@@ -1,4 +1,4 @@
-// If the session has expired, any call comes back 401: go to the login page.
+﻿// If the session has expired, any call comes back 401: go to the login page.
 const realFetch = window.fetch;
 window.fetch = async (...args) => {
   const response = await realFetch(...args);
@@ -36,9 +36,25 @@ function errorText(data, fallback) {
   return data.detail || fallback;
 }
 
+async function loadMe() {
+  try {
+    const response = await fetch("/me");
+    if (!response.ok) return;
+    const me = await response.json();
+    $("pwUser").value = me.id;
+    $("deviceName").textContent = "Device: " + me.name + (me.owner ? " (" + me.owner + ")" : "");
+  } catch (error) {
+    /* not important */
+  }
+}
+
 async function loadStations() {
   try {
     const response = await fetch("/stations");
+    if (response.status === 503) {
+      setTimeout(loadStations, 30000); // NS list not loaded yet
+      return;
+    }
     if (!response.ok) return;
     const names = await response.json();
     stationNames = new Set(names.map((n) => n.toLowerCase()));
@@ -176,13 +192,37 @@ $("routeForm").addEventListener("submit", async (event) => {
   }
 });
 
+loadMe();
 loadStations();
 loadRoute();
 loadConfig();
 loadStatus();
-setInterval(loadStatus, 60000);
+setInterval(loadStatus, 30000);
 
 $("logout").addEventListener("click", async () => {
   await fetch("/logout", { method: "POST" });
   window.location.href = "/login";
+});
+
+$("passwordForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const out = $("passwordResult");
+  if ($("pwNew").value !== $("pwRepeat").value) {
+    out.textContent = "Error: the new passwords don't match";
+    return;
+  }
+  out.textContent = "Saving...";
+  try {
+    const response = await fetch("/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current: $("pwCurrent").value, new: $("pwNew").value })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(errorText(data, "Could not change password"));
+    $("passwordForm").reset();
+    out.textContent = "Password changed. Other browsers logged in to this device are logged out.";
+  } catch (error) {
+    out.textContent = "Error: " + error.message;
+  }
 });

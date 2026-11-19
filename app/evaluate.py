@@ -104,6 +104,8 @@ def evaluate_route(departure, arrival, cfg):
     # delay or cancellation in the trip planner, only in the disruption feed.
     try:
         kinds, notes = check_disruptions(route_stops(best_trip))
+    except ns_client.NeedData:
+        raise  # not fetched yet: wait for it rather than show a partial answer
     except Exception as exc:
         print("NS disruptions error:", str(exc))
         kinds, notes = set(), []

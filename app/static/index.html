@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -9,6 +9,7 @@
 <body>
     <div class="topbar">
     <h1>🚆✨ Quintrein Project ✨🚆</h1>
+    <span class="hint" id="deviceName"></span>
     <button type="button" class="secondary small" id="logout">Log out</button>
   </div>
 
@@ -29,7 +30,7 @@
       <button type="submit">Save route</button>
     </form>
     <p id="result" role="status"></p>
-    <p class="notice">⏱ The light on the Quintrein device may take up to one minute to update.</p>
+    <p class="notice">⏱ The light on the Quintrein device may take a minute or two to update. Tip: set your train times under "Specific trains" so it is checked every minute before you leave.</p>
   </div>
 
   <div class="panel">
@@ -78,6 +79,21 @@
       <button type="button" class="secondary" id="resetConfig">Reset to defaults</button>
     </form>
     <p id="configResult" role="status"></p>
+  </div>
+
+  <div class="panel">
+    <h2>Change password</h2>
+    <form id="passwordForm">
+      <input type="text" id="pwUser" autocomplete="username" hidden>
+      <label for="pwCurrent">Current password</label>
+      <input id="pwCurrent" type="password" required autocomplete="current-password" maxlength="200">
+      <label for="pwNew">New password (at least 8 characters)</label>
+      <input id="pwNew" type="password" required minlength="8" autocomplete="new-password" maxlength="200">
+      <label for="pwRepeat">Repeat new password</label>
+      <input id="pwRepeat" type="password" required minlength="8" autocomplete="new-password" maxlength="200">
+      <button type="submit">Change password</button>
+    </form>
+    <p id="passwordResult" role="status"></p>
   </div>
   </div>
   </div>
