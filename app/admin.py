@@ -20,6 +20,7 @@ def fail(message):
 
 
 def main(argv=None):
+    print(f"Accounts file: {storage.DATA_DIR / accounts.ACCOUNTS_FILE}", file=sys.stderr)
     parser = argparse.ArgumentParser(prog="python -m app.admin")
     sub = parser.add_subparsers(dest="command", required=True)
 

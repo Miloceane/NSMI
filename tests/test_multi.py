@@ -44,6 +44,14 @@ def fake_ns(monkeypatch):
     state._devices.clear()
     for d in ("a", "b"):
         state.set_route(d, {"departure": "Arnhem Centraal", "arrival": "Doetinchem"})
+    # set_route fetches urgently; start the tests from a clean slate.
+    calls.clear()
+    ns_client.clear_cache()
+    ns_client._urgent_calls.clear()
+    try:
+        (storage.DATA_DIR / ns_client.LAST_CALL_FILE).unlink()
+    except OSError:
+        pass
     yield SimpleClock(clock), calls, data
     accounts.save({})
     state._devices.clear()
@@ -78,6 +86,22 @@ def test_last_call_survives_restart(fake_ns):
     ns_client.clear_cache()                 # like a restart: memory gone
     scheduler.run_once(wait=False)
     assert len(calls) == 1
+
+
+def test_saving_route_fetches_immediately(fake_ns, monkeypatch):
+    clock, calls, _ = fake_ns
+    monkeypatch.setattr(ns_client.time, "sleep", lambda s: clock.advance(s))
+    state.set_route("a", {"departure": "Doetinchem", "arrival": "Arnhem Centraal"})
+    assert state.get_status("a")["color"] != "white"   # no scheduler involved
+    assert any("fromStation=DTC" in c for c in calls)
+
+
+def test_urgent_fetches_are_capped(fake_ns, monkeypatch):
+    clock, calls, _ = fake_ns
+    monkeypatch.setattr(ns_client.time, "sleep", lambda s: clock.advance(s))
+    for i in range(ns_client.URGENT_PER_MINUTE + 5):
+        ns_client.fetch_urgent(f"/x{i}")
+    assert len(calls) == ns_client.URGENT_PER_MINUTE
 
 
 def run_minutes(clock, n):

@@ -2,7 +2,16 @@ import json
 import os
 from pathlib import Path
 
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+def _default_data_dir():
+    # In Docker, /data is the mounted ./data folder. Outside Docker (e.g.
+    # running `python -m app.admin` on the server) use that same ./data
+    # folder directly, never a stray /data on the host.
+    if Path("/.dockerenv").exists():
+        return Path("/data")
+    return Path(__file__).resolve().parent.parent / "data"
+
+
+DATA_DIR = Path(os.getenv("DATA_DIR") or _default_data_dir())
 
 
 def write_json(name, data):

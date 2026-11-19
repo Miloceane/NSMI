@@ -154,35 +154,65 @@ def _http_get(path):
 
 def fetch_next(wait=True):
     """Make at most one NS call. Returns the path fetched, or None."""
-    with _call_lock:
-        delay = seconds_until_call_allowed()
-        if delay > 0:
-            if not wait:
-                return None
-            time.sleep(delay)
-
-        now = time.time()
-        path = _next_path(now)
-        if path is None:
+    while True:
+        with _call_lock:
+            delay = seconds_until_call_allowed()
+            if delay <= 0:
+                now = time.time()
+                path = _next_path(now)
+                if path is None:
+                    return None
+                return _fetch(path, now)
+        if not wait:
             return None
+        # Sleep without the lock, so fetch_urgent() isn't stuck behind us.
+        time.sleep(min(delay, 1))
 
-        storage.write_json(LAST_CALL_FILE, {"at": now})
-        try:
-            data = _http_get(path)
-            error = None
-        except Exception as exc:
-            print("NS API error:", path, str(exc))
-            data, error = None, str(exc)
 
-        with _lock:
-            entry = _cache.setdefault(path, {"wanted": now, "max_age": DEFAULT_MAX_AGE})
-            entry["attempted"] = now
-            if error is None:
-                entry.update(data=data, fetched=time.time())
-                entry.pop("error", None)
-            elif "data" not in entry:
-                entry["error"] = "Could not reach NS"  # stale data is kept otherwise
-        return path
+# Someone just saved a route and is watching the page: these calls may skip
+# the normal spacing, but stay far below NS's limit of 1 call per second.
+URGENT_MIN_GAP = 1.5          # seconds between any two calls
+URGENT_PER_MINUTE = 10        # urgent calls allowed per rolling minute
+_urgent_calls = []
+
+
+def fetch_urgent(path):
+    """Fetch `path` right away. Returns False if the budget is used up."""
+    with _call_lock:
+        now = time.time()
+        if _blocked_until["t"] > now:
+            return False
+        _urgent_calls[:] = [t for t in _urgent_calls if now - t < 60]
+        if len(_urgent_calls) >= URGENT_PER_MINUTE:
+            return False
+        gap = _last_call() + URGENT_MIN_GAP - now
+        if gap > 0:
+            time.sleep(gap)
+            now = time.time()
+        _urgent_calls.append(now)
+        _fetch(path, now)
+        return True
+
+
+def _fetch(path, now):
+    """One real NS call (caller holds _call_lock)."""
+    storage.write_json(LAST_CALL_FILE, {"at": now})
+    try:
+        data = _http_get(path)
+        error = None
+    except Exception as exc:
+        print("NS API error:", path, str(exc))
+        data, error = None, str(exc)
+
+    with _lock:
+        entry = _cache.setdefault(path, {"wanted": now, "max_age": DEFAULT_MAX_AGE})
+        entry["attempted"] = now
+        if error is None:
+            entry.update(data=data, fetched=time.time())
+            entry.pop("error", None)
+        elif "data" not in entry:
+            entry["error"] = "Could not reach NS"  # stale data is kept otherwise
+    return path
 
 
 def want(path, max_age=DEFAULT_MAX_AGE):

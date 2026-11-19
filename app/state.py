@@ -260,9 +260,26 @@ def set_route(device_id, new_route):
         record["status"] = {**DEFAULT_STATUS, "message": "Checking NS for your new route..."}
         record["last_ok"] = None
         record["manual_until"] = 0
-    evaluate(device_id)  # instant if another device already uses this route
+        config = _config_copy(record["config"])
+    _fetch_now(new_route, config)  # the person is watching: don't wait
+    evaluate(device_id)
     _wake_scheduler()
     return new_route.copy()
+
+
+def _fetch_now(route, config, max_tries=4):
+    """Fetch the NS data this route needs right away (urgent budget), one
+    missing path at a time, instead of waiting for the scheduler."""
+    for _ in range(max_tries):
+        ns_client.track_age(URGENT_MAX_AGE)
+        try:
+            evaluate_route(route["departure"], route["arrival"], config)
+            return
+        except ns_client.NeedData as missing:
+            if not ns_client.fetch_urgent(missing.args[0]):
+                return  # budget used up: the scheduler will get it
+        except Exception:
+            return
 
 
 def set_config(device_id, new_config):
