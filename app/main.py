@@ -35,6 +35,17 @@ PUBLIC_PATHS = {"/login", "/health", "/static/style.css", "/static/login.js"}
 
 
 @app.middleware("http")
+async def no_stale_pages(request: Request, call_next):
+    # Pages and scripts change together on every deploy; never let a
+    # browser or Cloudflare keep an old copy of one of them.
+    response = await call_next(request)
+    path = request.url.path
+    if path in ("/", "/login") or path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@app.middleware("http")
 async def require_login(request: Request, call_next):
     if request.url.path in PUBLIC_PATHS:
         return await call_next(request)
