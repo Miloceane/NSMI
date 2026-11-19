@@ -1,9 +1,21 @@
 """Rate limiting, shared cache and per-device state."""
 import pytest
 
-from app import accounts, ns_client, scheduler, state, storage
+from app import accounts, api_cache, ns_client, scheduler, state, storage
 
 from test_evaluate import STATIONS, trip
+
+api = ns_client.api
+
+
+def clear_api(a):
+    a.clear_cache()
+    a._urgent_calls.clear()
+    a._blocked_until = 0.0
+    try:
+        (storage.DATA_DIR / a.last_call_file).unlink()
+    except OSError:
+        pass
 
 
 @pytest.fixture
@@ -22,16 +34,12 @@ def fake_ns(monkeypatch):
             return []
         return {"trips": data["trips"]}
 
-    monkeypatch.setattr(ns_client, "_http_get", http_get)
-    monkeypatch.setattr(ns_client.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(api, "_http_get", http_get)
+    monkeypatch.setattr(api_cache.time, "time", lambda: clock["t"])
     monkeypatch.setattr(state.time, "time", lambda: clock["t"])
-    monkeypatch.setattr(ns_client, "CALL_INTERVAL", 60)
+    monkeypatch.setattr(api, "call_interval", 60)
     monkeypatch.setattr(state, "refresh_interval", lambda *a, **k: 60)
-    ns_client.clear_cache()
-    try:
-        (storage.DATA_DIR / ns_client.LAST_CALL_FILE).unlink()
-    except OSError:
-        pass
+    clear_api(api)
     accounts.save({
         "a": {"token": "ta", "password_hash": accounts.hash_password("x")},
         "b": {"token": "tb", "password_hash": accounts.hash_password("x")},
@@ -46,12 +54,7 @@ def fake_ns(monkeypatch):
         state.set_route(d, {"departure": "Arnhem Centraal", "arrival": "Doetinchem"})
     # set_route fetches urgently; start the tests from a clean slate.
     calls.clear()
-    ns_client.clear_cache()
-    ns_client._urgent_calls.clear()
-    try:
-        (storage.DATA_DIR / ns_client.LAST_CALL_FILE).unlink()
-    except OSError:
-        pass
+    clear_api(api)
     yield SimpleClock(clock), calls, data
     accounts.save({})
     state._devices.clear()
@@ -83,14 +86,14 @@ def test_never_more_than_one_call_per_interval(fake_ns):
 def test_last_call_survives_restart(fake_ns):
     clock, calls, _ = fake_ns
     scheduler.run_once(wait=False)
-    ns_client.clear_cache()                 # like a restart: memory gone
+    api.clear_cache()                       # like a restart: memory gone
     scheduler.run_once(wait=False)
     assert len(calls) == 1
 
 
 def test_saving_route_fetches_immediately(fake_ns, monkeypatch):
     clock, calls, _ = fake_ns
-    monkeypatch.setattr(ns_client.time, "sleep", lambda s: clock.advance(s))
+    monkeypatch.setattr(api_cache.time, "sleep", lambda s: clock.advance(s))
     state.set_route("a", {"departure": "Doetinchem", "arrival": "Arnhem Centraal"})
     assert state.get_status("a")["color"] != "white"   # no scheduler involved
     assert any("fromStation=DTC" in c for c in calls)
@@ -98,10 +101,10 @@ def test_saving_route_fetches_immediately(fake_ns, monkeypatch):
 
 def test_urgent_fetches_are_capped(fake_ns, monkeypatch):
     clock, calls, _ = fake_ns
-    monkeypatch.setattr(ns_client.time, "sleep", lambda s: clock.advance(s))
-    for i in range(ns_client.URGENT_PER_MINUTE + 5):
-        ns_client.fetch_urgent(f"/x{i}")
-    assert len(calls) == ns_client.URGENT_PER_MINUTE
+    monkeypatch.setattr(api_cache.time, "sleep", lambda s: clock.advance(s))
+    for i in range(api.urgent_per_minute + 5):
+        api.fetch_urgent(f"/x{i}")
+    assert len(calls) == api.urgent_per_minute
 
 
 def run_minutes(clock, n):
@@ -159,7 +162,7 @@ def test_urgent_route_is_fetched_before_quiet_one(fake_ns, monkeypatch):
     run_minutes(clock, 5)                      # everything fetched once
     monkeypatch.setattr(
         state, "refresh_interval",
-        lambda config, last_seen, now=None: 60 if config["delay_red_min"] == 99 else 900,
+        lambda config, last_seen, now=None, tz=None: 60 if config["delay_red_min"] == 99 else 900,
     )
     cfg = state.get_config("a")
     state.set_config("a", {**cfg, "delay_red_min": 99})   # marks "a" as urgent

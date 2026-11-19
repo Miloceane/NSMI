@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from . import ns_client
+from . import api_cache, providers
 from .config import COLOR_RANK
-from .disruptions import check_disruptions, route_stops
+from .i18n import t
 from .trips import (
     TRIPS_TO_CHECK,
     fetch_trips,
@@ -24,63 +24,62 @@ def result(color, message, watching=None, reliable=True):
 
 
 def no_data(cfg, message):
-    """NS gave us nothing usable. Never 'unknown': use the configured colour."""
+    """The API gave us nothing usable. Never 'unknown': use the configured colour."""
     return result(cfg["no_data"], message, reliable=False)
 
 
-def evaluate_route(departure, arrival, cfg):
-    start = ns_client.find_station(departure)
-    end = ns_client.find_station(arrival)
+def evaluate_route(departure, arrival, cfg, provider=None,
+                   departure_id=None, arrival_id=None):
+    provider = provider or providers.get(None)
+    lang, api = provider.lang, provider.label
+    start = provider.find_station(departure, departure_id)
+    end = provider.find_station(arrival, arrival_id)
 
     if not start:
-        return no_data(cfg, f"Departure station not found: {departure}")
+        return no_data(cfg, t(lang, "dep_not_found", name=departure))
 
     if not end:
-        return no_data(cfg, f"Arrival station not found: {arrival}")
+        return no_data(cfg, t(lang, "arr_not_found", name=arrival))
 
     watching = None
     note = ""
     usable = []
 
     if cfg["watch_times"]:
-        watching, usable, found_note = find_watched(start, end, cfg["watch_times"])
+        watching, usable, found_note = find_watched(provider, start, end, cfg["watch_times"])
         if usable:
             note = f"{found_note}. " if found_note else ""
         else:
-            note = (
-                f"No train found at {', '.join(cfg['watch_times'])}; "
-                "following the next train. "
-            )
+            note = t(lang, "no_watched", times=", ".join(cfg["watch_times"]))
 
     if not usable:
-        now = datetime.now(local_tz())
-        upcoming = [
-            (t, tm) for t, tm in fetch_trips(start, end)
-            if tm["dep_actual"] >= now
-        ]
-        usable = (upcoming or fetch_trips(start, end))[:TRIPS_TO_CHECK]
+        now = datetime.now(local_tz(provider.timezone))
+        trips = fetch_trips(provider, start, end)
+        upcoming = [(tr, tm) for tr, tm in trips if tm["dep_actual"] >= now]
+        usable = (upcoming or trips)[:TRIPS_TO_CHECK]
         if not usable:
-            return no_data(cfg, "NS returned no trips for this route")
+            return no_data(cfg, t(lang, "no_trips", api=api))
 
     # The first trip in the list is the reference: the next train, or the
     # chosen one. Everything is measured against when it should arrive.
     usual_trip, usual = usable[0]
 
-    working = [(t, tm) for t, tm in usable if not trip_is_cancelled(t)]
+    working = [(tr, tm) for tr, tm in usable if not trip_is_cancelled(tr)]
     if not working:
         return result(
             cfg["all_cancelled"],
-            f"{note}All of the next {len(usable)} trips are cancelled",
+            note + t(lang, "all_cancelled", n=len(usable)),
             watching,
         )
 
     best_trip, best = min(working, key=lambda item: item[1]["arr_actual"])
     late = round((best["arr_actual"] - usual["arr_planned"]).total_seconds() / 60)
 
-    reference = f"the {watching} train" if watching else "usual"
-    summary = (
-        f"Best option leaves {best['dep_actual']:%H:%M}, "
-        f"arrives {best['arr_actual']:%H:%M} ({late:+d} min vs {reference})"
+    reference = t(lang, "ref_watched", time=watching) if watching else t(lang, "ref_usual")
+    summary = t(
+        lang, "summary",
+        dep=f"{best['dep_actual']:%H:%M}", arr=f"{best['arr_actual']:%H:%M}",
+        late=late, ref=reference,
     )
     extra = trip_messages(best_trip) or trip_messages(usual_trip)
     if extra:
@@ -103,16 +102,17 @@ def evaluate_route(departure, arrival, cfg):
     # Reduced service (e.g. only half the trains run) does not show up as a
     # delay or cancellation in the trip planner, only in the disruption feed.
     try:
-        kinds, notes = check_disruptions(route_stops(best_trip))
-    except ns_client.NeedData:
+        kinds, notes = provider.check_disruptions(best_trip)
+    except api_cache.NeedData:
         raise  # not fetched yet: wait for it rather than show a partial answer
     except Exception as exc:
-        print("NS disruptions error:", str(exc))
+        print(f"{api} disruptions error:", str(exc))
         kinds, notes = set(), []
-        summary += " (could not check NS disruptions)"
+        summary += t(lang, "no_disruptions", api=api)
 
     colors.extend(cfg[kind] for kind in kinds)
 
+    notes = [n for n in notes if n not in summary]
     if notes:
         summary = " | ".join(notes[:2]) + " | " + summary
 

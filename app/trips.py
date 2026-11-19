@@ -1,9 +1,8 @@
 import os
 from datetime import datetime, timedelta
-from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from . import ns_client
+from .i18n import t
 
 TRIPS_TO_CHECK = 4         # how many upcoming trips to look at
 WATCH_LOOKBACK_MIN = 60    # a chosen train this far past its time can still count
@@ -14,9 +13,10 @@ MAX_WATCH_LOOKUPS = 3      # NS calls per check when specific times are chosen
 _warned_about_timezone = False
 
 
-def local_tz():
+def local_tz(name=None):
+    """The timezone of a provider (e.g. "Europe/Paris"); default: TIMEZONE."""
     global _warned_about_timezone
-    name = os.getenv("TIMEZONE", "Europe/Amsterdam")
+    name = name or os.getenv("TIMEZONE", "Europe/Amsterdam")
     try:
         return ZoneInfo(name)
     except Exception:
@@ -82,20 +82,10 @@ def trip_messages(trip):
     return found
 
 
-def fetch_trips(start, end, when=None):
+def fetch_trips(provider, start, end, when=None):
     """Trips from `when` (default: now), as a list of (trip, times)."""
-    params = {"fromStation": start["code"], "toStation": end["code"]}
-    if when is not None:
-        params["dateTime"] = when.isoformat(timespec="seconds")
-
-    data = ns_client.ns_get(f"/v3/trips?{urlencode(params)}")
-
-    trips = data.get("trips") if isinstance(data, dict) else None
-    if not isinstance(trips, list):
-        raise RuntimeError("Unexpected response from NS trips API")
-
     result = []
-    for trip in trips:
+    for trip in provider.fetch_trips(start, end, when):
         times = trip_times(trip)
         if times:
             result.append((trip, times))
@@ -115,18 +105,18 @@ def watch_candidates(watch_times, now):
     return sorted(found)
 
 
-def find_watched(start, end, watch_times):
+def find_watched(provider, start, end, watch_times):
     """The next chosen train that hasn't left yet.
 
     Returns (label, [(trip, times), ...], note). The list starts with the
     chosen train, followed by the trips after it (the fallbacks). If none
     of the chosen trains can be found it returns (None, [], None).
     """
-    now = datetime.now(local_tz())
+    now = datetime.now(local_tz(provider.timezone))
     tolerance = timedelta(minutes=WATCH_TOLERANCE_MIN)
 
     for target in watch_candidates(watch_times, now)[:MAX_WATCH_LOOKUPS]:
-        trips = fetch_trips(start, end, target - tolerance)
+        trips = fetch_trips(provider, start, end, target - tolerance)
 
         def gap(i):
             return abs((trips[i][1]["dep_planned"] - target).total_seconds())
@@ -145,7 +135,7 @@ def find_watched(start, end, watch_times):
         label = f"{times['dep_planned']:%H:%M}"
         note = None
         if gap(index) >= 60:
-            note = f"Using the {label} train (closest to {target:%H:%M})"
+            note = t(provider.lang, "closest", label=label, target=f"{target:%H:%M}")
         return label, trips[index:index + TRIPS_TO_CHECK], note
 
     return None, [], None

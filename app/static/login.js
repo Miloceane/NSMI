@@ -1,9 +1,25 @@
 const form = document.getElementById("loginForm");
 const out = document.getElementById("loginResult");
 
+// Before login we don't know the device yet: French browsers get French.
+const FR = (navigator.language || "").toLowerCase().startsWith("fr");
+if (FR) {
+  document.documentElement.lang = "fr";
+  const set = (selector, text) => {
+    const el = document.querySelector(selector);
+    if (el) el.textContent = text;
+  };
+  set(".login h2", "Connexion");
+  set('label[for="device"]', "Nom de l'appareil");
+  set('label[for="password"]', "Mot de passe");
+  set("#loginForm button", "Se connecter");
+  const device = document.getElementById("device");
+  if (device) device.placeholder = "par ex. mamie-maison";
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  out.textContent = "Logging in...";
+  out.textContent = FR ? "Connexion..." : "Logging in...";
 
   const device = document.getElementById("device");
   const password = document.getElementById("password");

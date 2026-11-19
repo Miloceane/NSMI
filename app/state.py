@@ -1,19 +1,21 @@
 """Per-device route, settings and latest status.
 
 Each device's route + settings live in DATA_DIR/devices/<id>.json. Status
-is kept in memory. Evaluating a device only reads the NS cache (see
-app/ns_client.py), so it is cheap and never calls NS itself.
+is kept in memory. Evaluating a device only reads the API cache of its
+provider (see app/api_cache.py, app/providers.py), so it is cheap and never
+calls an API itself.
 """
 import time
 from datetime import datetime, timedelta
 from threading import Lock
 
-from . import accounts, ns_client, storage
+from . import accounts, api_cache, providers, storage
 from .config import COLOR_OF_STATUS, DEFAULT_CONFIG, STATUS_OF_COLOR, clean_config
 from .evaluate import evaluate_route
+from .i18n import t
 from .trips import local_tz
 
-STALE_AFTER_SECONDS = 15 * 60   # older NS data than this is not trusted
+STALE_AFTER_SECONDS = 15 * 60   # older data than this is not trusted
                                 # (longer for quiet routes, see _stale_after)
 
 # How fresh each device's data should be (seconds), see refresh_interval().
@@ -24,17 +26,18 @@ URGENT_WINDOW_MIN = 90          # minutes before a chosen train that we watch cl
 DAY_HOURS = range(5, 24)        # "following the next train" is quiet outside this
 UNWATCHED_AFTER = 10 * 60       # no ESP32/browser poll for this long -> quiet
 
-DEFAULT_ROUTE = {
-    "departure": "Utrecht Centraal",
-    "arrival": "Amsterdam Centraal",
-}
-DEFAULT_STATUS = {
-    "status": "ok",
-    "color": "white",
-    "message": "Starting up, no data yet",
-    "watching": None,
-    "reliable": True,
-}
+ROUTE_KEYS = ("departure", "arrival", "departure_id", "arrival_id")
+
+
+def default_status(lang="en", message=None):
+    return {
+        "status": "ok",
+        "color": "white",
+        "message": message or t(lang, "starting"),
+        "watching": None,
+        "reliable": True,
+    }
+
 
 lock = Lock()
 _devices = {}   # device id -> {"route", "config", "status", "last_ok", "manual_until"}
@@ -44,10 +47,26 @@ def _file(device_id):
     return f"devices/{device_id}.json"
 
 
-def _defaults():
+def provider_of(device_id):
+    return providers.of_account(accounts.get(device_id))
+
+
+def _clean_route(raw):
+    """Route dict with only known string keys, or None if incomplete."""
+    if not isinstance(raw, dict):
+        return None
+    route = {k: raw[k] for k in ROUTE_KEYS if isinstance(raw.get(k), str) and raw[k]}
+    if not route.get("departure") or not route.get("arrival"):
+        return None
+    return route
+
+
+def _defaults(provider):
     """Starting route/settings for a new device: the old single-user files
-    if they exist, otherwise the built-in defaults."""
-    route, config = DEFAULT_ROUTE.copy(), clean_config(DEFAULT_CONFIG)
+    if they exist (NS only), otherwise the built-in defaults."""
+    route, config = dict(provider.default_route), clean_config(DEFAULT_CONFIG)
+    if provider.name != "ns":
+        return route, config
     try:
         data = storage.read_json("route.json")
         if data.get("departure") and data.get("arrival"):
@@ -63,47 +82,65 @@ def _defaults():
 
 def _load(device_id):
     """In-memory record for a device (caller holds the lock)."""
-    if device_id in _devices:
-        return _devices[device_id]
+    provider = provider_of(device_id)
+    record = _devices.get(device_id)
+    if record is not None and record["provider"] == provider.name:
+        return record
 
-    route, config = _defaults()
+    route, config = _defaults(provider)
     try:
         data = storage.read_json(_file(device_id))
-        r = data.get("route") or {}
-        if isinstance(r.get("departure"), str) and isinstance(r.get("arrival"), str):
-            route = {"departure": r["departure"], "arrival": r["arrival"]}
+        if data.get("provider", "ns") == provider.name:
+            route = _clean_route(data.get("route")) or route
         config = clean_config({**DEFAULT_CONFIG, **(data.get("config") or {})})
     except (OSError, ValueError, AttributeError, TypeError):
         pass
 
     record = {
+        "provider": provider.name,
         "route": route,
         "config": config,
-        "status": DEFAULT_STATUS.copy(),
+        "status": default_status(
+            provider.lang, None if _has_route(route) else t(provider.lang, "choose_route")),
         "last_ok": None,
         "manual_until": 0,
-        "last_seen": time.time(),
+        "last_seen": record["last_seen"] if record else time.time(),
     }
     _devices[device_id] = record
     return record
 
 
 def _save(device_id, record):
-    storage.write_json(_file(device_id), {"route": record["route"], "config": record["config"]})
+    storage.write_json(_file(device_id), {
+        "provider": record["provider"],
+        "route": record["route"],
+        "config": record["config"],
+    })
 
 
 def _config_copy(config):
     return {**config, "watch_times": list(config["watch_times"])}
 
 
+def _has_route(route):
+    return bool(route.get("departure") and route.get("arrival"))
+
+
+def _run(provider, route, config):
+    return evaluate_route(
+        route["departure"], route["arrival"], config, provider,
+        route.get("departure_id"), route.get("arrival_id"),
+    )
+
+
 # ---------------------------------------------------------------- evaluate
 
-def refresh_interval(config, last_seen, now=None):
-    """How old this device's NS data may get before it is fetched again.
+def refresh_interval(config, last_seen, now=None, tz=None):
+    """How old this device's data may get before it is fetched again.
 
     Calls go where a wrong colour would hurt: right before a chosen train.
     """
-    now = now or datetime.now(local_tz())
+    now = now or datetime.now(tz or local_tz())
     if time.time() - last_seen > UNWATCHED_AFTER:
         return QUIET_MAX_AGE
 
@@ -125,37 +162,44 @@ def _stale_after(max_age):
 
 
 def evaluate(device_id):
-    """Recompute one device's status from the NS cache."""
+    """Recompute one device's status from its provider's cache."""
     with lock:
         record = _load(device_id)
         if time.time() < record["manual_until"]:
             return
+        provider = providers.get(record["provider"])
+        lang, api = provider.lang, provider.label
         route = record["route"].copy()
         config = _config_copy(record["config"])
-        max_age = refresh_interval(config, record["last_seen"])
+        if not _has_route(route):
+            record["status"] = default_status(lang, t(lang, "choose_route"))
+            return
+        tz = local_tz(provider.timezone)
+        max_age = refresh_interval(config, record["last_seen"], tz=tz)
         record["max_age"] = max_age
 
     waiting = error = outcome = None
-    ns_client.track_age(max_age)
+    api_cache.track_age(max_age)
     try:
-        outcome = evaluate_route(route["departure"], route["arrival"], config)
-    except ns_client.NeedData:
+        outcome = _run(provider, route, config)
+    except api_cache.NeedData:
         waiting = True
     except Exception as exc:
         print(f"[{device_id}] evaluation error:", str(exc))
         error = str(exc)
-    age = ns_client.data_age()
+    age = api_cache.data_age()
 
     with lock:
-        # Route or settings changed meanwhile: this result is for old input.
-        if record["route"] != route or record["config"] != config:
+        # Route, settings or provider changed meanwhile: this result is for old input.
+        if (record["route"] != route or record["config"] != config
+                or _devices.get(device_id) is not record):
             return
         status = record["status"]
         now = time.time()
 
         stale_after = _stale_after(max_age)
         if outcome is not None and age <= stale_after:
-            checked = datetime.now(local_tz()) - timedelta(seconds=age)
+            checked = datetime.now(tz) - timedelta(seconds=age)
             status.update(
                 color=outcome["color"],
                 status=STATUS_OF_COLOR[outcome["color"]],
@@ -166,15 +210,15 @@ def evaluate(device_id):
             )
             status.pop("error", None)
             if outcome["reliable"]:
-                record["last_ok"] = now - age  # when the data came from NS
+                record["last_ok"] = now - age  # when the data came from the API
             return
 
         if waiting and status["color"] == "white":
-            status["message"] = "Waiting for NS data (can take a few minutes)"
+            status["message"] = t(lang, "waiting", api=api)
             return
 
         if not waiting:
-            status["error"] = "Could not reach NS; showing last known status"
+            status["error"] = t(lang, "unreachable_keep", api=api)
         last_ok = record["last_ok"]
         if last_ok is None or now - last_ok > stale_after:
             if waiting and status["color"] == "white":
@@ -183,19 +227,23 @@ def evaluate(device_id):
             status.update(
                 color="white",
                 status="unknown",
-                message="No recent NS data" if waiting else
-                        "Could not reach NS and there is no recent data",
+                message=t(lang, "no_recent" if waiting else "unreachable_none", api=api),
                 watching=None,
                 reliable=False,
             )
 
 
-def evaluate_all():
-    ns_client.new_round()
-    for device_id in accounts.load():
-        evaluate(device_id)
+def evaluate_all(provider=None):
+    """Re-evaluate every device (of one provider, or of all)."""
+    names = [provider.name] if provider else list(providers.PROVIDERS)
+    for name in names:
+        providers.get(name).api.new_round()
+    for device_id, account in accounts.load().items():
+        if providers.of_account(account).name in names:
+            evaluate(device_id)
     with lock:  # forget removed devices
-        for device_id in [d for d in _devices if d not in accounts.load()]:
+        known = accounts.load()
+        for device_id in [d for d in _devices if d not in known]:
             del _devices[device_id]
 
 
@@ -205,6 +253,11 @@ def _wake_scheduler():
 
 
 # ------------------------------------------------------------------ access
+
+def get_provider(device_id):
+    with lock:
+        return providers.get(_load(device_id)["provider"])
+
 
 def get_route(device_id):
     with lock:
@@ -250,33 +303,36 @@ def get_color(device_id):
 def set_route(device_id, new_route):
     with lock:
         record = _load(device_id)
+        provider = providers.get(record["provider"])
         old = record["route"]
-        record["route"] = new_route.copy()
+        record["route"] = _clean_route(new_route) or {}
         try:
             _save(device_id, record)
         except OSError:
             record["route"] = old
             raise
-        record["status"] = {**DEFAULT_STATUS, "message": "Checking NS for your new route..."}
+        record["status"] = default_status(
+            provider.lang, t(provider.lang, "checking_route", api=provider.label))
         record["last_ok"] = None
         record["manual_until"] = 0
+        route = record["route"].copy()
         config = _config_copy(record["config"])
-    _fetch_now(new_route, config)  # the person is watching: don't wait
+    _fetch_now(provider, route, config)  # the person is watching: don't wait
     evaluate(device_id)
     _wake_scheduler()
-    return new_route.copy()
+    return route
 
 
-def _fetch_now(route, config, max_tries=4):
-    """Fetch the NS data this route needs right away (urgent budget), one
+def _fetch_now(provider, route, config, max_tries=4):
+    """Fetch the data this route needs right away (urgent budget), one
     missing path at a time, instead of waiting for the scheduler."""
     for _ in range(max_tries):
-        ns_client.track_age(URGENT_MAX_AGE)
+        api_cache.track_age(URGENT_MAX_AGE)
         try:
-            evaluate_route(route["departure"], route["arrival"], config)
+            _run(provider, route, config)
             return
-        except ns_client.NeedData as missing:
-            if not ns_client.fetch_urgent(missing.args[0]):
+        except api_cache.NeedData as missing:
+            if not provider.api.fetch_urgent(missing.args[0]):
                 return  # budget used up: the scheduler will get it
         except Exception:
             return

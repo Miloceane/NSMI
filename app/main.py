@@ -1,7 +1,7 @@
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
@@ -13,8 +13,9 @@ from pydantic import BaseModel, Field
 
 from contextlib import asynccontextmanager
 
-from . import accounts, auth, ns_client, scheduler, state
+from . import accounts, api_cache, auth, ns_client, providers, scheduler, sncf_client, state
 from .config import COLOR_OF_STATUS, CONFIG_KEYS, DEFAULT_CONFIG, clean_config
+from .i18n import t
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -76,6 +77,9 @@ class PasswordChange(BaseModel):
 class RouteUpdate(BaseModel):
     departure: str = Field(min_length=1, max_length=100)
     arrival: str = Field(min_length=1, max_length=100)
+    # SNCF: the stop_area ids picked from /stations/search
+    departure_id: str | None = Field(default=None, max_length=100)
+    arrival_id: str | None = Field(default=None, max_length=100)
 
 
 class StatusUpdate(BaseModel):
@@ -168,11 +172,17 @@ def health():
     return {"ok": True}
 
 
-def NS_WAIT(what):
+def STATION_WAIT(provider):
+    lang = provider.lang
     return HTTPException(
         status_code=503,
-        detail=f"The {what} is still being loaded from NS, try again in a minute",
+        detail=t(lang, "loading", what=t(lang, "station_list"), api=provider.label),
     )
+
+
+def STATION_ERROR(provider):
+    return HTTPException(
+        status_code=503, detail=t(provider.lang, "station_error", api=provider.label))
 
 
 @app.get("/me")
@@ -180,46 +190,83 @@ def me(request: Request):
     """Which device this session is for."""
     device_id = request.state.device
     account = accounts.get(device_id) or {}
+    provider = providers.of_account(account)
     return {
         "id": device_id,
         "name": account.get("name", device_id),
         "owner": account.get("owner", ""),
+        "provider": provider.name,
+        "provider_label": provider.label,
+        "lang": provider.lang,
     }
 
 
 @app.get("/stations")
-def stations():
-    """Station names for the dropdown."""
+def stations(request: Request):
+    """Station names for the dropdown (NS). SNCF has no full list: the
+    page uses /stations/search instead, so this returns []."""
+    provider = state.provider_of(request.state.device)
+    if provider.name != "ns":
+        return []
     try:
         names = ns_client.station_options()
     except ns_client.NeedData:
-        raise NS_WAIT("station list")
+        raise STATION_WAIT(provider)
     except Exception as exc:
         print("Station list error:", str(exc))
-        raise HTTPException(status_code=503, detail="Could not load stations from NS")
+        raise STATION_ERROR(provider)
     if not names:
-        raise NS_WAIT("station list")
+        raise STATION_WAIT(provider)
     return names
 
 
-def resolve_station(text):
+@app.get("/stations/search")
+def station_search(request: Request, q: str = Query("", max_length=100)):
+    """Stations matching `q` (SNCF): [{"id", "name", "label"}]."""
+    provider = state.provider_of(request.state.device)
+    if provider.name != "sncf":
+        return []
+    try:
+        return sncf_client.search(q)
+    except api_cache.Busy:
+        raise HTTPException(status_code=429, detail=t(provider.lang, "search_busy"))
+    except Exception as exc:
+        print("Station search error:", str(exc))
+        raise STATION_ERROR(provider)
+
+
+def resolve_ns_station(provider, text):
     try:
         station = ns_client.find_station(text)
         hints = [] if station else ns_client.suggest(text)
     except ns_client.NeedData:
-        raise NS_WAIT("station list")
+        raise STATION_WAIT(provider)
     except Exception as exc:
         print("Station lookup error:", str(exc))
-        raise HTTPException(
-            status_code=503,
-            detail="Could not load the station list from NS, try again in a minute",
-        )
+        raise STATION_ERROR(provider)
 
     if not station:
-        extra = f" Did you mean: {', '.join(hints)}?" if hints else ""
-        raise HTTPException(status_code=422, detail=f"Station not found: {text}.{extra}")
+        not_found(provider, text, hints)
+    return {"code": station["code"], "name": station["namen"]["lang"]}
 
-    return station
+
+def resolve_sncf_station(provider, text, station_id):
+    try:
+        station, hints = sncf_client.resolve(text, station_id)
+    except api_cache.Busy:
+        raise HTTPException(status_code=429, detail=t(provider.lang, "search_busy"))
+    except Exception as exc:
+        print("Station lookup error:", str(exc))
+        raise STATION_ERROR(provider)
+    if not station:
+        not_found(provider, text, hints)
+    return {"code": station["id"], "name": station["label"]}
+
+
+def not_found(provider, text, hints):
+    lang = provider.lang
+    extra = t(lang, "did_you_mean", hints=", ".join(hints)) if hints else ""
+    raise HTTPException(status_code=422, detail=t(lang, "station_not_found", text=text) + extra)
 
 
 @app.get("/route")
@@ -229,20 +276,21 @@ def get_route(request: Request):
 
 @app.post("/route")
 def set_route(update: RouteUpdate, request: Request):
-    start = resolve_station(update.departure.strip())
-    end = resolve_station(update.arrival.strip())
+    provider = state.provider_of(request.state.device)
+    if provider.name == "sncf":
+        start = resolve_sncf_station(provider, update.departure.strip(), update.departure_id)
+        end = resolve_sncf_station(provider, update.arrival.strip(), update.arrival_id)
+    else:
+        start = resolve_ns_station(provider, update.departure.strip())
+        end = resolve_ns_station(provider, update.arrival.strip())
 
     if start["code"] == end["code"]:
-        raise HTTPException(
-            status_code=422,
-            detail="Departure and arrival must be different stations",
-        )
+        raise HTTPException(status_code=422, detail=t(provider.lang, "same_station"))
 
     # Store the official names, whatever spelling was typed.
-    new_route = {
-        "departure": start["namen"]["lang"],
-        "arrival": end["namen"]["lang"],
-    }
+    new_route = {"departure": start["name"], "arrival": end["name"]}
+    if provider.name == "sncf":
+        new_route.update(departure_id=start["code"], arrival_id=end["code"])
     try:
         return state.set_route(request.state.device, new_route)
     except OSError as exc:

@@ -1,17 +1,48 @@
 # Train status light
 
 Tells an ESP32 (or a browser) whether a train is fine (green), delayed (yellow)
-or not workable (red), using the NS Reisinformatie API.
+or not workable (red), using the NS Reisinformatie API (Netherlands) or the
+SNCF API (France). Each device uses one of them.
 
 ## Run
 
     pip install -r requirements.txt
-    NS_API_KEY=... DATA_DIR=./data uvicorn app.main:app --reload
+    NS_API_KEY=... SNCF_API_KEY=... DATA_DIR=./data uvicorn app.main:app --reload
 
 or build the Dockerfile and mount a volume on `/data`.
 
-Environment: `NS_API_KEY` (required), `DATA_DIR` (default `/data`),
-`TIMEZONE` (default `Europe/Amsterdam`).
+Environment: `NS_API_KEY` (needed for NS devices), `SNCF_API_KEY` (needed
+for SNCF devices), `DATA_DIR` (default `/data`), `TIMEZONE` (default
+`Europe/Amsterdam`; NS devices use Amsterdam time and SNCF devices use
+Paris time anyway).
+
+## SNCF devices (France)
+
+    python -m app.admin add mamie --name Maison --owner Mamie --provider sncf
+    python -m app.admin provider mamie ns     # switch an existing device
+
+An SNCF device:
+- has its web page in French (the login page is French for French browsers);
+- finds stations by searching as you type, because SNCF has no cheap
+  full station list. Searches use the urgent budget and are cached for a week;
+- covers TGV INOUI, Ouigo, Intercités, TER and Transilien (not metro/bus);
+- uses the same light settings. Delays and cancellations come from the
+  disruptions attached to each journey. Disruptions for a whole line map to
+  "fewer trains" (reduced/delayed service), "no trains" (no service) or
+  "replacement bus" (coaches/substitution mentioned).
+
+**SNCF has its own call budget, completely separate from NS**, with its own
+worker thread, cache and 429 back-off. An SNCF device never slows down an NS
+device, and NS devices never slow down SNCF devices. A provider with no devices makes no calls.
+
+| Setting                 | Default | Notes                                       |
+|-------------------------|---------|---------------------------------------------|
+| `SNCF_CALLS_PER_MINUTE` | 2       | 1-10; background pace                       |
+| `SNCF_CALLS_PER_DAY`    | 4500    | the free SNCF plan allows 5000/day; counted on disk, resets at 00:00 UTC |
+
+2 calls/min = 2880 a day at most, which leaves room for searches and route
+changes. Each SNCF journey call returns delays *and* disruptions together,
+so a route costs 1 call per refresh, compared with 2 for NS.
 
 ## Devices and login
 
@@ -85,15 +116,19 @@ the "NS can't be reached or has no answer" setting.
 ## Layout
 
     app/main.py         HTTP routes
-    app/state.py        route/config/status in memory + refresh from NS
+    app/state.py        route/config/status in memory + refresh from the API
     app/evaluate.py     the decision: trips + disruptions + settings -> colour
-    app/trips.py        NS trip planner parsing, watched trains
+    app/trips.py        trip times, watched trains (NS trip format)
     app/disruptions.py  NS disruption matching on the stops of the route
+    app/api_cache.py    per-provider cache + rate limiter (+ daily quota)
+    app/providers.py    NS / SNCF: stations, trips, disruptions per device
     app/ns_client.py    NS HTTP calls, station list and search
+    app/sncf_client.py  SNCF (Navitia) calls, station search, journeys -> NS trip format
+    app/i18n.py         server texts in English / French
     app/auth.py         per-device login + device token
     app/accounts.py     device accounts (accounts.json)
     app/admin.py        CLI to manage accounts
-    app/scheduler.py    background worker: one NS call per minute
+    app/scheduler.py    background workers: one per provider
     app/config.py       settings: defaults, validation, persistence
     app/storage.py      atomic JSON files in DATA_DIR
     app/text.py         name normalising / whole-word matching

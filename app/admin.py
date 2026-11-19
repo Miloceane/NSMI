@@ -1,6 +1,8 @@
 """Manage device accounts from the command line.
 
     python -m app.admin add quin-home --name Home --owner Quin   # prints token + password
+    python -m app.admin add mamie --provider sncf  # French device (SNCF, page in French)
+    python -m app.admin provider mamie ns          # switch train API
     python -m app.admin list
     python -m app.admin passwd quin                # new password
     python -m app.admin new-token quin             # new token (reflash the ESP32)
@@ -12,6 +14,8 @@ import argparse
 import sys
 
 from . import accounts, storage
+
+PROVIDERS = ("ns", "sncf")  # see app/providers.py (not imported: keeps the CLI light)
 
 
 def fail(message):
@@ -29,8 +33,14 @@ def main(argv=None):
     add.add_argument("--name", help="display name (default: the id)")
     add.add_argument("--owner", default="", help="who it belongs to (just a label)")
     add.add_argument("--password", help="default: a random one is generated")
+    add.add_argument("--provider", choices=sorted(PROVIDERS), default="ns",
+                     help="train API: ns (Netherlands, default) or sncf (France, page in French)")
 
     sub.add_parser("list", help="show all accounts")
+
+    prov = sub.add_parser("provider", help="switch a device to another train API (resets its route)")
+    prov.add_argument("device_id")
+    prov.add_argument("provider", choices=sorted(PROVIDERS))
 
     passwd = sub.add_parser("passwd", help="set a new password (logs that person out)")
     passwd.add_argument("device_id")
@@ -50,7 +60,7 @@ def main(argv=None):
             print("No accounts yet. Create one with: python -m app.admin add <id>")
         for device_id, acc in sorted(devices.items()):
             print(f"{device_id:20} {acc.get('name', ''):16} {acc.get('owner', ''):12} "
-                  f"token={acc['token']}")
+                  f"{acc.get('provider', 'ns'):5} token={acc['token']}")
         return
 
     device_id = args.device_id
@@ -65,9 +75,10 @@ def main(argv=None):
             "owner": args.owner,
             "token": accounts.new_token(),
             "password_hash": accounts.hash_password(password),
+            "provider": args.provider,
         }
         accounts.save(devices)
-        print(f"Created '{device_id}'")
+        print(f"Created '{device_id}' ({args.provider.upper()})")
         print(f"  web login:    {device_id} / {password}   (they can change the password)")
         print(f"  ESP32 token:  {devices[device_id]['token']}")
         return
@@ -84,6 +95,11 @@ def main(argv=None):
         devices[device_id]["token"] = accounts.new_token()
         accounts.save(devices)
         print(f"New device token for '{device_id}': {devices[device_id]['token']}")
+    elif args.command == "provider":
+        devices[device_id]["provider"] = args.provider
+        accounts.save(devices)
+        print(f"'{device_id}' now uses {args.provider.upper()}; "
+              "choose the route again on the web page")
     elif args.command == "remove":
         del devices[device_id]
         accounts.save(devices)
